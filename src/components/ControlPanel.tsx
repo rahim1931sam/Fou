@@ -1,14 +1,26 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { Input } from "./ui/input";
 import { Slider } from "./ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Thermometer, Droplets, Fan, Clock, Power } from "lucide-react";
+import {
+  Thermometer,
+  Droplets,
+  Fan,
+  Clock,
+  Power,
+  Flame,
+  Timer,
+  Wind,
+  Snowflake,
+  Zap,
+} from "lucide-react";
 
 interface ControlPanelProps {
   roomId?: string;
   isAutoMode?: boolean;
+  isAutoOn?: boolean;
   targetTemperature?: number;
   targetHumidity?: number;
   dryingTime?: number;
@@ -17,6 +29,7 @@ interface ControlPanelProps {
   fanPower?: boolean;
   fanSpeed?: number;
   onModeChange?: (isAuto: boolean) => void;
+  onAutoOnChange?: (isAutoOn: boolean) => void;
   onTargetTempChange?: (temp: number) => void;
   onTargetHumidityChange?: (humidity: number) => void;
   onDryingTimeChange?: (time: number) => void;
@@ -29,6 +42,7 @@ interface ControlPanelProps {
 const ControlPanel = ({
   roomId = "Room 1",
   isAutoMode = false,
+  isAutoOn = false,
   targetTemperature = 65,
   targetHumidity = 45,
   dryingTime = 12,
@@ -37,6 +51,7 @@ const ControlPanel = ({
   fanPower = false,
   fanSpeed = 50,
   onModeChange = () => {},
+  onAutoOnChange = () => {},
   onTargetTempChange = () => {},
   onTargetHumidityChange = () => {},
   onDryingTimeChange = () => {},
@@ -46,6 +61,7 @@ const ControlPanel = ({
   onFanSpeedChange = () => {},
 }: ControlPanelProps) => {
   const [localIsAutoMode, setLocalIsAutoMode] = useState(isAutoMode);
+  const [localIsAutoOn, setLocalIsAutoOn] = useState(isAutoOn);
   const [localTargetTemp, setLocalTargetTemp] = useState(targetTemperature);
   const [localTargetHumidity, setLocalTargetHumidity] =
     useState(targetHumidity);
@@ -54,6 +70,20 @@ const ControlPanel = ({
   const [localAirDryerPower, setLocalAirDryerPower] = useState(airDryerPower);
   const [localFanPower, setLocalFanPower] = useState(fanPower);
   const [localFanSpeed, setLocalFanSpeed] = useState(fanSpeed);
+
+  // Add state for multiple heaters
+  const [heatersPower, setHeatersPower] = useState({
+    heater1: localHeaterPower,
+    heater2: false,
+    heater3: false,
+    heater4: false,
+  });
+
+  // Auto-on functionality is now controlled by props and local state
+
+  // Add countdown timer state
+  const [countdownTime, setCountdownTime] = useState(dryingTime * 60 * 60); // Convert hours to seconds
+  const [isCountdownActive, setIsCountdownActive] = useState(false);
 
   const handleModeChange = (checked: boolean) => {
     setLocalIsAutoMode(checked);
@@ -77,17 +107,114 @@ const ControlPanel = ({
   const handleDryingTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = Number(e.target.value);
     setLocalDryingTime(value);
+    setCountdownTime(value * 60 * 60); // Update countdown time when drying time changes
     onDryingTimeChange(value);
   };
 
-  const handleHeaterToggle = () => {
-    setLocalHeaterPower(!localHeaterPower);
-    onHeaterToggle(!localHeaterPower);
+  // Format seconds to HH:MM:SS
+  const formatTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    return [
+      hours.toString().padStart(2, "0"),
+      minutes.toString().padStart(2, "0"),
+      secs.toString().padStart(2, "0"),
+    ].join(":");
+  };
+
+  // Auto-on effect to control heaters and dryer based on temperature and humidity
+  useEffect(() => {
+    if (localIsAutoOn && localIsAutoMode) {
+      // Logic to control heaters based on temperature
+      const shouldHeatersBeOn = localTargetTemp > targetTemperature;
+      setHeatersPower((prev) => ({
+        heater1: shouldHeatersBeOn,
+        heater2: shouldHeatersBeOn && localTargetTemp - targetTemperature > 2,
+        heater3: shouldHeatersBeOn && localTargetTemp - targetTemperature > 4,
+        heater4: shouldHeatersBeOn && localTargetTemp - targetTemperature > 6,
+      }));
+      setLocalHeaterPower(shouldHeatersBeOn);
+      onHeaterToggle(shouldHeatersBeOn);
+
+      // Logic to control air dryer based on humidity
+      const shouldDryerBeOn = localTargetHumidity < targetHumidity;
+      setLocalAirDryerPower(shouldDryerBeOn);
+      onAirDryerToggle(shouldDryerBeOn);
+
+      // Start countdown if dryer is on
+      if (shouldDryerBeOn && !isCountdownActive) {
+        setIsCountdownActive(true);
+      }
+    }
+  }, [
+    localIsAutoOn,
+    localIsAutoMode,
+    localTargetTemp,
+    targetTemperature,
+    localTargetHumidity,
+    targetHumidity,
+    onHeaterToggle,
+    onAirDryerToggle,
+  ]);
+
+  // Countdown timer effect
+  useEffect(() => {
+    let interval: number | undefined;
+
+    if (isCountdownActive && countdownTime > 0) {
+      interval = window.setInterval(() => {
+        setCountdownTime((prevTime) => {
+          const newTime = prevTime - 1;
+          if (newTime <= 0) {
+            setIsCountdownActive(false);
+            // Automatically turn off the dryer when countdown reaches zero
+            setLocalAirDryerPower(false);
+            onAirDryerToggle(false);
+            return 0;
+          }
+          return newTime;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isCountdownActive, countdownTime, onAirDryerToggle]);
+
+  const handleHeaterToggle = (heaterNum = 1) => {
+    // Don't manually toggle if in auto-on mode
+    if (localIsAutoOn && localIsAutoMode) return;
+
+    if (heaterNum === 1) {
+      setLocalHeaterPower(!localHeaterPower);
+      onHeaterToggle(!localHeaterPower);
+    }
+
+    // Update the specific heater in the heaters state
+    const heaterKey = `heater${heaterNum}` as keyof typeof heatersPower;
+    setHeatersPower((prev) => ({
+      ...prev,
+      [heaterKey]: !prev[heaterKey],
+    }));
   };
 
   const handleAirDryerToggle = () => {
-    setLocalAirDryerPower(!localAirDryerPower);
-    onAirDryerToggle(!localAirDryerPower);
+    // Don't manually toggle if in auto-on mode
+    if (localIsAutoOn && localIsAutoMode) return;
+
+    const newState = !localAirDryerPower;
+    setLocalAirDryerPower(newState);
+    onAirDryerToggle(newState);
+
+    // Start or stop countdown timer when dryer is toggled
+    if (newState && localIsAutoMode) {
+      setIsCountdownActive(true);
+    } else {
+      setIsCountdownActive(false);
+    }
   };
 
   const handleFanToggle = () => {
@@ -106,15 +233,29 @@ const ControlPanel = ({
         <h2 className="text-2xl font-bold text-gray-800">
           {roomId} Control Panel
         </h2>
-        <div className="flex items-center space-x-2">
-          <span className="text-sm font-medium text-gray-600">
-            {localIsAutoMode ? "Automatic" : "Manual"} Mode
-          </span>
-          <Switch
-            checked={localIsAutoMode}
-            onCheckedChange={handleModeChange}
-            className="data-[state=checked]:bg-green-500"
-          />
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <span className="text-sm font-medium text-gray-600">
+              {localIsAutoMode ? "Automatic" : "Manual"} Mode
+            </span>
+            <Switch
+              checked={localIsAutoMode}
+              onCheckedChange={handleModeChange}
+              className="data-[state=checked]:bg-green-500"
+            />
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="text-sm font-medium text-gray-600">Auto-On</span>
+            <Switch
+              checked={localIsAutoOn}
+              onCheckedChange={(checked) => {
+                setLocalIsAutoOn(checked);
+                onAutoOnChange(checked);
+              }}
+              disabled={!localIsAutoMode}
+              className="data-[state=checked]:bg-purple-500"
+            />
+          </div>
         </div>
       </div>
 
@@ -132,48 +273,180 @@ const ControlPanel = ({
           className="space-y-6 bg-gray-50 p-4 rounded-lg"
         >
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Heater Control */}
-            <div className="bg-gradient-to-br from-orange-50 to-red-50 p-4 rounded-lg shadow border border-orange-100">
-              <div className="flex justify-between items-center mb-2">
-                <div className="flex items-center">
-                  <Thermometer className="h-5 w-5 text-orange-500 mr-2" />
-                  <h3 className="font-medium">Heater</h3>
+            {/* Heaters Control Grid */}
+            <div className="col-span-1 md:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              {/* Heater 1 */}
+              <div className="bg-gradient-to-br from-orange-50 to-red-50 p-4 rounded-lg shadow border border-orange-100">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="flex items-center">
+                    <Flame className="h-5 w-5 text-orange-500 mr-2" />
+                    <h3 className="font-medium">Heater 1</h3>
+                  </div>
+                  <div className="flex items-center">
+                    {localIsAutoOn && localIsAutoMode && (
+                      <span className="text-xs font-medium text-purple-500 mr-2">
+                        Auto
+                      </span>
+                    )}
+                    <Switch
+                      checked={heatersPower.heater1}
+                      onCheckedChange={() => handleHeaterToggle(1)}
+                      disabled={localIsAutoOn && localIsAutoMode}
+                      className="data-[state=checked]:bg-orange-500"
+                    />
+                  </div>
                 </div>
-                <Switch
-                  checked={localHeaterPower}
-                  onCheckedChange={() => handleHeaterToggle()}
-                  className="data-[state=checked]:bg-orange-500"
-                />
+                <Button
+                  variant={heatersPower.heater1 ? "default" : "outline"}
+                  className={`w-full mt-2 ${heatersPower.heater1 ? "bg-orange-500 hover:bg-orange-600" : "text-orange-500 border-orange-200"}`}
+                  onClick={() => handleHeaterToggle(1)}
+                  disabled={localIsAutoOn && localIsAutoMode}
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  {heatersPower.heater1 ? "Turn Off" : "Turn On"}
+                </Button>
               </div>
-              <Button
-                variant={localHeaterPower ? "default" : "outline"}
-                className={`w-full mt-2 ${localHeaterPower ? "bg-orange-500 hover:bg-orange-600" : "text-orange-500 border-orange-200"}`}
-                onClick={handleHeaterToggle}
-              >
-                <Power className="h-4 w-4 mr-2" />
-                {localHeaterPower ? "Turn Off" : "Turn On"}
-              </Button>
+
+              {/* Heater 2 */}
+              <div className="bg-gradient-to-br from-orange-50 to-red-50 p-4 rounded-lg shadow border border-orange-100">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="flex items-center">
+                    <Flame className="h-5 w-5 text-orange-500 mr-2" />
+                    <h3 className="font-medium">Heater 2</h3>
+                  </div>
+                  <div className="flex items-center">
+                    {localIsAutoOn && localIsAutoMode && (
+                      <span className="text-xs font-medium text-purple-500 mr-2">
+                        Auto
+                      </span>
+                    )}
+                    <Switch
+                      checked={heatersPower.heater2}
+                      onCheckedChange={() => handleHeaterToggle(2)}
+                      disabled={localIsAutoOn && localIsAutoMode}
+                      className="data-[state=checked]:bg-orange-500"
+                    />
+                  </div>
+                </div>
+                <Button
+                  variant={heatersPower.heater2 ? "default" : "outline"}
+                  className={`w-full mt-2 ${heatersPower.heater2 ? "bg-orange-500 hover:bg-orange-600" : "text-orange-500 border-orange-200"}`}
+                  onClick={() => handleHeaterToggle(2)}
+                  disabled={localIsAutoOn && localIsAutoMode}
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  {heatersPower.heater2 ? "Turn Off" : "Turn On"}
+                </Button>
+              </div>
+
+              {/* Heater 3 */}
+              <div className="bg-gradient-to-br from-orange-50 to-red-50 p-4 rounded-lg shadow border border-orange-100">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="flex items-center">
+                    <Flame className="h-5 w-5 text-orange-500 mr-2" />
+                    <h3 className="font-medium">Heater 3</h3>
+                  </div>
+                  <div className="flex items-center">
+                    {localIsAutoOn && localIsAutoMode && (
+                      <span className="text-xs font-medium text-purple-500 mr-2">
+                        Auto
+                      </span>
+                    )}
+                    <Switch
+                      checked={heatersPower.heater3}
+                      onCheckedChange={() => handleHeaterToggle(3)}
+                      disabled={localIsAutoOn && localIsAutoMode}
+                      className="data-[state=checked]:bg-orange-500"
+                    />
+                  </div>
+                </div>
+                <Button
+                  variant={heatersPower.heater3 ? "default" : "outline"}
+                  className={`w-full mt-2 ${heatersPower.heater3 ? "bg-orange-500 hover:bg-orange-600" : "text-orange-500 border-orange-200"}`}
+                  onClick={() => handleHeaterToggle(3)}
+                  disabled={localIsAutoOn && localIsAutoMode}
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  {heatersPower.heater3 ? "Turn Off" : "Turn On"}
+                </Button>
+              </div>
+
+              {/* Heater 4 */}
+              <div className="bg-gradient-to-br from-orange-50 to-red-50 p-4 rounded-lg shadow border border-orange-100">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="flex items-center">
+                    <Flame className="h-5 w-5 text-orange-500 mr-2" />
+                    <h3 className="font-medium">Heater 4</h3>
+                  </div>
+                  <div className="flex items-center">
+                    {localIsAutoOn && localIsAutoMode && (
+                      <span className="text-xs font-medium text-purple-500 mr-2">
+                        Auto
+                      </span>
+                    )}
+                    <Switch
+                      checked={heatersPower.heater4}
+                      onCheckedChange={() => handleHeaterToggle(4)}
+                      disabled={localIsAutoOn && localIsAutoMode}
+                      className="data-[state=checked]:bg-orange-500"
+                    />
+                  </div>
+                </div>
+                <Button
+                  variant={heatersPower.heater4 ? "default" : "outline"}
+                  className={`w-full mt-2 ${heatersPower.heater4 ? "bg-orange-500 hover:bg-orange-600" : "text-orange-500 border-orange-200"}`}
+                  onClick={() => handleHeaterToggle(4)}
+                  disabled={localIsAutoOn && localIsAutoMode}
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  {heatersPower.heater4 ? "Turn Off" : "Turn On"}
+                </Button>
+              </div>
             </div>
 
-            {/* Air Dryer Control */}
+            {/* Air Dryer Control with Countdown Timer */}
             <div className="bg-gradient-to-br from-blue-50 to-cyan-50 p-4 rounded-lg shadow border border-blue-100">
               <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center">
-                  <Droplets className="h-5 w-5 text-blue-500 mr-2" />
+                  <Wind className="h-5 w-5 text-blue-500 mr-2" />
                   <h3 className="font-medium">Air Dryer</h3>
                 </div>
-                <Switch
-                  checked={localAirDryerPower}
-                  onCheckedChange={() => handleAirDryerToggle()}
-                  className="data-[state=checked]:bg-blue-500"
-                />
+                <div className="flex items-center">
+                  {localIsAutoOn && localIsAutoMode && (
+                    <span className="text-xs font-medium text-purple-500 mr-2">
+                      Auto
+                    </span>
+                  )}
+                  <Switch
+                    checked={localAirDryerPower}
+                    onCheckedChange={() => handleAirDryerToggle()}
+                    disabled={localIsAutoOn && localIsAutoMode}
+                    className="data-[state=checked]:bg-blue-500"
+                  />
+                </div>
               </div>
+
+              {/* Countdown Timer Display */}
+              <div
+                className={`flex items-center justify-center p-2 mb-2 rounded-md ${isCountdownActive ? "bg-blue-100" : "bg-gray-100"}`}
+              >
+                <Timer
+                  className={`h-4 w-4 mr-2 ${isCountdownActive ? "text-blue-500 animate-pulse" : "text-gray-400"}`}
+                />
+                <span
+                  className={`font-mono font-medium ${isCountdownActive ? "text-blue-700" : "text-gray-500"}`}
+                >
+                  {formatTime(countdownTime)}
+                </span>
+              </div>
+
               <Button
                 variant={localAirDryerPower ? "default" : "outline"}
                 className={`w-full mt-2 ${localAirDryerPower ? "bg-blue-500 hover:bg-blue-600" : "text-blue-500 border-blue-200"}`}
                 onClick={handleAirDryerToggle}
+                disabled={localIsAutoOn && localIsAutoMode}
               >
-                <Power className="h-4 w-4 mr-2" />
+                <Snowflake className="h-4 w-4 mr-2" />
                 {localAirDryerPower ? "Turn Off" : "Turn On"}
               </Button>
             </div>

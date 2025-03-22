@@ -11,6 +11,7 @@ interface RoomData {
   temperatureRange: { min: number; max: number };
   humidityRange: { min: number; max: number };
   isAutoMode: boolean;
+  isAutoOn: boolean;
   targetTemperature: number;
   targetHumidity: number;
   dryingTime: number;
@@ -48,6 +49,7 @@ const generateMockData = (): RoomData[] => {
       temperatureRange: { min: 20, max: 30 },
       humidityRange: { min: 40, max: 70 },
       isAutoMode: i === 1,
+      isAutoOn: false,
       targetTemperature: 25,
       targetHumidity: 50,
       dryingTime: 12,
@@ -77,6 +79,23 @@ const RoomCarousel: React.FC = () => {
     localStorage.setItem("tobaccoDryingRooms", JSON.stringify(rooms));
   }, [rooms]);
 
+  // Ensure room data is properly loaded from localStorage on component mount
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const savedRooms = localStorage.getItem("tobaccoDryingRooms");
+      if (savedRooms) {
+        setRooms(JSON.parse(savedRooms));
+      }
+    };
+
+    // Listen for storage events (in case localStorage is updated in another tab)
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, []);
+
   const handlePrevRoom = () => {
     if (currentRoomIndex > 0) {
       setDirection(-1);
@@ -96,26 +115,7 @@ const RoomCarousel: React.FC = () => {
     setCurrentRoomIndex(index);
   };
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    touchEndX.current = e.touches[0].clientX;
-  };
-
-  const handleTouchEnd = () => {
-    const diff = touchStartX.current - touchEndX.current;
-    const threshold = 50; // minimum distance to be considered a swipe
-
-    if (diff > threshold) {
-      // Swipe left, go to next room
-      handleNextRoom();
-    } else if (diff < -threshold) {
-      // Swipe right, go to previous room
-      handlePrevRoom();
-    }
-  };
+  // Drag feature removed as requested
 
   const updateRoomData = (roomIndex: number, newData: Partial<RoomData>) => {
     setRooms((prevRooms) => {
@@ -127,6 +127,10 @@ const RoomCarousel: React.FC = () => {
 
   const handleModeChange = (isAuto: boolean) => {
     updateRoomData(currentRoomIndex, { isAutoMode: isAuto });
+  };
+
+  const handleAutoOnChange = (isAutoOn: boolean) => {
+    updateRoomData(currentRoomIndex, { isAutoOn: isAutoOn });
   };
 
   const handleTargetTempChange = (temp: number) => {
@@ -260,12 +264,7 @@ const RoomCarousel: React.FC = () => {
         onSelectRoom={handleSelectRoom}
       />
 
-      <div
-        className="flex-1 overflow-hidden"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
+      <div className="flex-1 overflow-hidden">
         <AnimatePresence initial={false} custom={direction} mode="wait">
           <motion.div
             key={currentRoomIndex}
@@ -283,6 +282,7 @@ const RoomCarousel: React.FC = () => {
             <RoomDashboard
               room={currentRoom}
               onModeChange={handleModeChange}
+              onAutoOnChange={handleAutoOnChange}
               onTargetTempChange={handleTargetTempChange}
               onTargetHumidityChange={handleTargetHumidityChange}
               onDryingTimeChange={handleDryingTimeChange}
